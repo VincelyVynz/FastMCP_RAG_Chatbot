@@ -18,7 +18,7 @@ st.title("RAG chatbot with MCP")
 
 # MCP Client
 
-MCP_SERVER_URL = "http://localhost:3333"
+MCP_SERVER_URL = "http://localhost:8000"
 mcp_client = Client(MCP_SERVER_URL)
 
 # Streamlit async

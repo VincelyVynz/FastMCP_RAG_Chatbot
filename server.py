@@ -2,6 +2,7 @@ from fastmcp import FastMCP
 from sentence_transformers import SentenceTransformer
 import numpy as np
 import faiss
+import asyncio
 
 mcp = FastMCP("Employee RAG Chatbot with FastMCP")
 
@@ -42,3 +43,6 @@ def retrieve_doc(query: str, top_k : int= TOP_K) -> list[str]:
     q_embeddings = embedder.encode([query]).astype("float32")
     _, indices = index.search(q_embeddings, top_k)
     return [chunks[i] for i in indices[0]]
+
+if __name__ == "__main__":
+    asyncio.run(mcp.run_http_async())
