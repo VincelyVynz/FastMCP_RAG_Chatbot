@@ -1,28 +1,44 @@
 from fastmcp import FastMCP
-import os
+from sentence_transformers import SentenceTransformer
+import numpy as np
+import faiss
 
-mcp = FastMCP("Employee Manager")
-DB_FILE = "employees.md"
+mcp = FastMCP("Employee RAG Chatbot with FastMCP")
 
-@mcp.tool
-def read_employees() -> str:
-    """
-    Reads the employee database.
-    """
-    if not os.path.exists(DB_FILE):
-        return "No employee records found"
-    with open(DB_FILE, "r") as f:
-        return f.read()
+TOP_K = 10
+# Read documents
+with open("employees.md", "r", encoding="utf-8") as f:
+    text = f.read()
 
-@mcp.tool
-def update_employee_record(name: str, content: str) -> str:
-    """
-    Update or add an employee record.
-    Provide the full markdown block for that employee.
-    """
-    with open(DB_FILE, "a") as f:
-        f.write(f"\n{content}\n")
-        return f"Updated record for {name}."
 
-if __name__ == "__main__":
-    mcp.run()
+# Chunking
+
+def chunk_doc(text, chunk_size = 500, overlap = 100):
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + chunk_size
+        chunks.append(text[start:end])
+        start += chunk_size - overlap
+    return chunks
+
+chunks = chunk_doc(text)
+
+# Embedding
+
+embedder = SentenceTransformer('all-MiniLM-L6-v2')
+embeddings = embedder.encode(chunks).astype("float32")
+
+index = faiss.IndexFlatL2(embeddings.shape[1])
+index.add(embeddings)
+
+# MCP tool
+
+@mcp.tool()
+def retrieve_doc(query: str, top_k : int= TOP_K) -> list[str]:
+    """
+    Retrieve relevant employee documents.
+    """
+    q_embeddings = embedder.encode([query]).astype("float32")
+    _, indices = index.search(q_embeddings, top_k)
+    return [chunks[i] for i in indices[0]]
