@@ -1,33 +1,96 @@
-import os
-import chainlit as cl
+import streamlit as st
+from fastmcp import Client
 from google import genai
-from dotenv import  load_dotenv
-from proto.marshal.compat import message
-
-from server import read_employees, update_employee_record
+from google.genai import types
+from dotenv import load_dotenv
+import os
+import asyncio
 
 load_dotenv()
 
 client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
-MODEL_ID = "gemini-1.5-flash"
 
-@cl.on_chat_start
-async def start():
-    cl.user_session.set("chat_history", [])
-    await cl.Message(content="System Ready. I can read and update employees.md!").send()
+st.set_page_config(
+    page_title="RAG chatbot with MCP",
+    page_icon= "🤖"
+)
+st.title("RAG chatbot with MCP")
 
-@cl.on_message
-async def main(message: cl.Message):
-    history = cl.user_session.get("chat_history")
+# MCP Client
+
+MCP_SERVER_URL = "http://localhost:3333"
+mcp_client = Client(MCP_SERVER_URL)
+
+# Streamlit async
+def run_async(coro):
+    return asyncio.run(coro)
+
+# LLM
+
+def ask_genai(context: str, question: str) -> str:
+    prompt = f"""
+You are a helpful assistant.
+If the question is casual or conversational, answer normally.
+If the question requires factual information, use the context below.
+If the answer is not in the context, say you don't know.
+
+Context: {context}
+Question: {question}
+
+"""
 
     response = client.models.generate_content(
-        model = MODEL_ID,
-        content = message.content,
-        config={
-            "tools" : [read_employees, update_employee_record],
-        }
+        model= "models/gemini-2.5-flash",
+        contents = prompt,
+        config = types.GenerateContentConfig(
+            temperature=0.3
+        )
+    )
+    return response.text
+
+# Chat
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+for message in st.session_state.messages:
+    st.chat_message(message["role"]).markdown(message["content"])
+
+query = st.chat_input("Ask anything about employees")
+
+if query:
+    st.chat_message("user").markdown(query)
+    st.session_state.messages.append(
+        {"role": "user", "content": query}
     )
 
-    history.append({"role": "user", "parts": [{"text": message.content}]})
-    history.append({"role": "model", "parts": [{"text": response.text}]})
-    await cl.Message(content=response.text).send()
+    with st.spinner("Retrieving documents..."):
+        # Call MCP tool
+        retrieved_chunks = run_async(
+            mcp_client.call_tool(
+                "retrieve_doc",
+                arguments= {
+                    "query": query,
+                }
+            )
+        )
+
+        st.write("Retrieved chunks:", retrieved_chunks) # FOR DEBUGGING
+
+        context = "\n\n".join(retrieved_chunks)
+
+    with st.spinner("Thinking..."):
+        answer = ask_genai(context, query)
+
+    st.chat_message("assistant").markdown(answer)
+    st.session_state.messages.append(
+        {"role": "assistant", "content": answer}
+    )
+
+
+
+
+
+
+
+
